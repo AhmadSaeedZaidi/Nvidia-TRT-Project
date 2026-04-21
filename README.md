@@ -32,8 +32,8 @@ This project uses CMake for rapid compilation independent of the larger TensorRT
 
 ```bash
 # Clone the sandbox
-git clone [https://github.com/your-username/fp4-fmha-sandbox.git](https://github.com/your-username/fp4-fmha-sandbox.git)
-cd fp4-fmha-sandbox
+git clone [https://github.com/AhmadSaeedZaidi/nvidia-trt-project.git](https://github.com/AhmadSaeedZaidi/nvidia-trt-project.git)
+cd nvidia-trt-project
 
 # Build the test harness
 mkdir build
