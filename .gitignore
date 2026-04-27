@@ -4,3 +4,36 @@
 *.ptx
 *.cubin
 *.fatbin
+
+# Build / CMake
+build/
+**/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Binaries / objects
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.obj
+*.a
+*.lib
+*.out
+*.log
+
+# IDE / editor
+.vscode/
+.idea/
+*.suo
+*.user
+*.ipch
+*.sln
+
+# Local project build folders
+rohaan_study/**/build/
+naive_fa/build/
+fa1/build/
