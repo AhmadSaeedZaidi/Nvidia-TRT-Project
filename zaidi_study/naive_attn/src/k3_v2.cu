@@ -12,59 +12,63 @@ __global__ void pv_tiled_coarsened(const float* P, const float* V, float* output
     __shared__ float P_ds[TILE_SIZE][TILE_SIZE];
     __shared__ float V_ds[TILE_SIZE][TILE_SIZE];
 
-    int tx = threadIdx.x; 
-    int ty = threadIdx.y; 
+    int tx = threadIdx.x; // 0 to 7
+    int ty = threadIdx.y; // 0 to 31
 
     int row = blockIdx.y * TILE_SIZE + ty;
-    int col_start = blockIdx.x * TILE_SIZE + tx * COARSE_FACTOR;
+    int col_start = blockIdx.x * TILE_SIZE + tx * COARSE_FACTOR; // The contiguous block of 4 elements for this thread
 
     float sum[COARSE_FACTOR] = {0.0f};
 
-    // Inner loop over seq_len
+    // Inner loop over seq_len (the K dimension in GEMM)
     for (int t = 0; t < (seq_len + TILE_SIZE - 1) / TILE_SIZE; ++t) {
         
-        // Load P tile: P[row, t*TILE_SIZE + tx]
-        if (row < seq_len && t * TILE_SIZE + tx < seq_len) {
-            P_ds[ty][tx] = P[row * seq_len + t * TILE_SIZE + tx];
-            for (int c = 1; c < COARSE_FACTOR; ++c) {
-                if (t * TILE_SIZE + tx + c * (TILE_SIZE/COARSE_FACTOR) < seq_len) {
-                    P_ds[ty][tx + c * (TILE_SIZE/COARSE_FACTOR)] = P[row * seq_len + t * TILE_SIZE + tx + c * (TILE_SIZE/COARSE_FACTOR)];
-                } else P_ds[ty][tx + c * (TILE_SIZE/COARSE_FACTOR)] = 0.0f;
+        // 1. Load P tile into Shared Memory
+        // Using stride of 8 (since blockDim.x = 8) to load 32 elements per row
+        for (int c = 0; c < COARSE_FACTOR; ++c) {
+            int p_col = t * TILE_SIZE + tx + c * 8;
+            if (row < seq_len && p_col < seq_len) {
+                P_ds[ty][tx + c * 8] = P[row * seq_len + p_col];
+            } else {
+                P_ds[ty][tx + c * 8] = 0.0f;
             }
-        } else {
-             P_ds[ty][tx] = 0.0f;
-             for (int c = 1; c < COARSE_FACTOR; ++c) P_ds[ty][tx + c * (TILE_SIZE/COARSE_FACTOR)] = 0.0f;
         }
 
-        // Load V tile: V[t*TILE_SIZE + ty, col_start]
+        // 2. Load V tile into Shared Memory
+        // Using stride of 8 (since blockDim.x = 8) to load 32 elements per row
         int v_row = t * TILE_SIZE + ty;
-        if (v_row < seq_len && tx * COARSE_FACTOR < d_k) {
-            V_ds[ty][tx] = V[v_row * d_k + col_start]; // Actually this access pattern needs careful mapping for coarsening, but for simplicity of porting:
-            for (int c = 1; c < COARSE_FACTOR; ++c) {
-                if (col_start + c < d_k) V_ds[ty][tx + c * (TILE_SIZE/COARSE_FACTOR)] = V[v_row * d_k + blockIdx.x * TILE_SIZE + tx + c * (TILE_SIZE/COARSE_FACTOR)];
-                else V_ds[ty][tx + c * (TILE_SIZE/COARSE_FACTOR)] = 0.0f;
+        for (int c = 0; c < COARSE_FACTOR; ++c) {
+            int v_col = blockIdx.x * TILE_SIZE + tx + c * 8;
+            if (v_row < seq_len && v_col < d_k) {
+                V_ds[ty][tx + c * 8] = V[v_row * d_k + v_col];
+            } else {
+                V_ds[ty][tx + c * 8] = 0.0f;
             }
-        } else {
-             V_ds[ty][tx] = 0.0f;
-             for (int c = 1; c < COARSE_FACTOR; ++c) V_ds[ty][tx + c * (TILE_SIZE/COARSE_FACTOR)] = 0.0f;
         }
         __syncthreads();
 
+        // 3. Compute partial dot products
+        // Thread calculates a 1 x COARSE_FACTOR chunk of the output
         for (int step = 0; step < TILE_SIZE; ++step) {
-            float p_val = P_ds[ty][step];
+            float p_val = P_ds[ty][step]; // Loaded once into register
+            
             #pragma unroll
             for (int c = 0; c < COARSE_FACTOR; ++c) {
-                sum[c] += p_val * V_ds[step][tx + c * (TILE_SIZE/COARSE_FACTOR)]; // Not quite correct due to the way I populated V_ds.
-                // Wait, it's easier if we just write a simple version, I don't have space.
+                // We access V_ds using the contiguous mapping for computation
+                sum[c] += p_val * V_ds[step][tx * COARSE_FACTOR + c];
             }
         }
         __syncthreads();
     }
 
+    // Write results
     if (row < seq_len) {
+        #pragma unroll
         for (int c = 0; c < COARSE_FACTOR; ++c) {
-            int col = blockIdx.x * TILE_SIZE + tx + c * (TILE_SIZE/COARSE_FACTOR);
-            if (col < d_k) output[row * d_k + col] = sum[c]; // Assuming the tx matches the col loaded
+            int col = col_start + c;
+            if (col < d_k) {
+                output[row * d_k + col] = sum[c];
+            }
         }
     }
 }

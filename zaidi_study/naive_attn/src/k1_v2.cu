@@ -27,14 +27,11 @@ __global__ void qk_tiled_coarsened(const float* Q, const float* K, float* S, int
     // Registers for thread coarsening (each thread holds COARSE_FACTOR output elements)
     float sum[COARSE_FACTOR] = {0.0f};
 
-    // Loop over the inner dimension (d_k) in steps of TILE_SIZE
+
     for (int t = 0; t < (d_k + TILE_SIZE - 1) / TILE_SIZE; ++t) {
         
-        // 1. Collaborative loading of Q tile into Shared Memory
-        // Q is accessed as row (global i) and column (t * TILE_SIZE + tx)
         if (row < seq_len && t * TILE_SIZE + tx < d_k) {
             Q_ds[ty][tx] = Q[row * d_k + t * TILE_SIZE + tx];
-            // Load the rest to fill the tile (since tx is only 0 to 7)
             for (int c = 1; c < COARSE_FACTOR; ++c) {
                 if (t * TILE_SIZE + tx + c * (TILE_SIZE/COARSE_FACTOR) < d_k) {
                     Q_ds[ty][tx + c * (TILE_SIZE/COARSE_FACTOR)] = Q[row * d_k + t * TILE_SIZE + tx + c * (TILE_SIZE/COARSE_FACTOR)];
@@ -49,9 +46,6 @@ __global__ void qk_tiled_coarsened(const float* Q, const float* K, float* S, int
              }
         }
         
-        // Load K tile into Shared Memory. 
-        // Note: We need K^T, meaning we want K[col, d] for our dot product
-        // Each thread loads elements for the K tile.
         int k_row = blockIdx.x * TILE_SIZE + ty; 
         if (k_row < seq_len && t * TILE_SIZE + tx < d_k) {
             K_ds[ty][tx] = K[k_row * d_k + t * TILE_SIZE + tx];

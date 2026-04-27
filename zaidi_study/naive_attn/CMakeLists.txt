@@ -22,11 +22,10 @@ target_compile_options(naive_attn PRIVATE
         -lineinfo
         -Xptxas=-v
         --use_fast_math
-        -Xcompiler=-Wall,-Wextra,-Wpedantic
+        -Xcompiler=-Wall,-Wextra
     >
     $<$<COMPILE_LANGUAGE:CXX>:
         -Wall
         -Wextra
-        -Wpedantic
     >
 )
