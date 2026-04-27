@@ -14,7 +14,7 @@ __global__ void qk_tiled_coarsened(const float* Q, const float* K, float* S, int
     // Thread block computes a TILE_SIZE x TILE_SIZE block of the output S
     // Each thread computes a 1 x COARSE_FACTOR row-segment of that block
     
-    // Shared memor
+    // Shared memory
     __shared__ float Q_ds[TILE_SIZE][TILE_SIZE];
     __shared__ float K_ds[TILE_SIZE][TILE_SIZE];
 
