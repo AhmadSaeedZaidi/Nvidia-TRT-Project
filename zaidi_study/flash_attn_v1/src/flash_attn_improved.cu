@@ -16,10 +16,11 @@ __global__ void flash_attn_1_fwd_f32_improved_kernel(const float* Q, const float
     int row = bx * BR + ty;
     
     // 32 KB Shared Memory (No register spilling for Q/O!)
-    __shared__ float Q_s[BR][D_K];
-    __shared__ float K_s[BC][D_K];
-    __shared__ float V_s[BC][D_K];
-    __shared__ float O_s[BR][D_K];
+    // trying to fix BANK CONFLICTS
+    __shared__ float Q_s[BR][D_K + 1];
+    __shared__ float K_s[BC][D_K + 1];
+    __shared__ float V_s[BC][D_K + 1];
+    __shared__ float O_s[BR][D_K + 1];
     
     __shared__ float m_i[BR];
     __shared__ float l_i[BR];
