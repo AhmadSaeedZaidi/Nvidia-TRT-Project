@@ -7,6 +7,7 @@ set(CMAKE_CUDA_ARCHITECTURES 75 80 86)
 add_executable(flash_attn_v1 
     app/main.cu 
     src/flash_attn.cu
+    src/flash_attn_improved.cu
     ../naive_attn/src/k1_v1.cu
     ../naive_attn/src/k1_v2.cu
     ../naive_attn/src/k2_v1.cu
@@ -23,7 +24,6 @@ target_include_directories(flash_attn_v1 PRIVATE
 target_compile_options(flash_attn_v1 PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:
         -lineinfo
-        -Xptxas=-v
         --use_fast_math
         -Xcompiler=-Wall,-Wextra
     >

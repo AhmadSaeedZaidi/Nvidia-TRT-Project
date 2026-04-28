@@ -24,7 +24,7 @@ float getMaxDiff(const std::vector<float>& arr1, const std::vector<float>& arr2)
 }
 
 int main() {
-    int seq_len = 128;
+    int seq_len = 2048; // increase to 2048
     int d_k = 64;
 
     size_t qkv_size = seq_len * d_k * sizeof(float);
@@ -69,7 +69,7 @@ int main() {
     cudaEventCreate(&stop);
     float t_v1_k1, t_v1_k2, t_v1_k3;
     float t_v2_k1, t_v2_k2, t_v2_k3;
-    float t_flash;
+    float t_flash, t_flash_improved;
 
     // =========================================================
     // 1. RUN NAIVE BASELINE (V1)
@@ -107,28 +107,31 @@ int main() {
     // =========================================================
 
     // K1
-    dim3 t1_v2(32, 16);
-    dim3 b1_v2((seq_len + 63) / 64, (seq_len + 63) / 64);
+    dim3 t1_v2(8, 32); 
+    dim3 b1_v2((seq_len + 31) / 32, (seq_len + 31) / 32);
     cudaEventRecord(start);
     qk_tiled_coarsened<<<b1_v2, t1_v2>>>(d_Q, d_K, d_S_v2, seq_len, d_k);
+    checkCuda(cudaGetLastError(), "qk_tiled_coarsened launch");
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&t_v2_k1, start, stop);
 
     // K2
-    dim3 t2_v2(32); // warp size
-    dim3 b2_v2(seq_len);
+    dim3 t2_v2(256);
+    dim3 b2_v2(seq_len); // 1 block per row
     cudaEventRecord(start);
     softmax_kernel_v2<<<b2_v2, t2_v2>>>(d_S_v2, d_P_v2, seq_len);
+    checkCuda(cudaGetLastError(), "softmax_kernel_v2 launch");
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&t_v2_k2, start, stop);
 
     // K3
-    dim3 t3_v2(32, 16);
-    dim3 b3_v2((d_k + 63) / 64, (seq_len + 63) / 64);
+    dim3 t3_v2(8, 32);
+    dim3 b3_v2((d_k + 31) / 32, (seq_len + 31) / 32);
     cudaEventRecord(start);
     pv_tiled_coarsened<<<b3_v2, t3_v2>>>(d_P_v2, d_V, d_Out_v2, seq_len, d_k);
+    checkCuda(cudaGetLastError(), "pv_tiled_coarsened launch");
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&t_v2_k3, start, stop);
@@ -140,14 +143,32 @@ int main() {
     
     // BR = 32 blocks
     int BR = 32;
-    dim3 t_flash_block(BR); // 32 threads, 1 per row
+    dim3 t_flash_block(BR); // 32 threads, 1 per row for Naive FA1
     dim3 b_flash_grid((seq_len + BR - 1) / BR);
     
     cudaEventRecord(start);
     flash_attn_1_fwd_f32_kernel<<<b_flash_grid, t_flash_block>>>(d_Q, d_K, d_V, d_Out_flash, seq_len, d_k);
+    checkCuda(cudaGetLastError(), "flash_attn_1 launch");
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&t_flash, start, stop);
+
+    // =========================================================
+    // 4. RUN FLASH ATTENTION (V1) IMPROVED
+    // =========================================================
+    
+    float *d_Out_flash_improved;
+    checkCuda(cudaMalloc(&d_Out_flash_improved, qkv_size), "Malloc Out flash improved");
+    
+    dim3 t_flash_improved_block(32, 32); // 2D block: 32 cols (lane ID), 32 rows
+    dim3 b_flash_improved_grid((seq_len + BR - 1) / BR);
+    
+    cudaEventRecord(start);
+    flash_attn_1_fwd_f32_improved_kernel<<<b_flash_improved_grid, t_flash_improved_block>>>(d_Q, d_K, d_V, d_Out_flash_improved, seq_len, d_k);
+    checkCuda(cudaGetLastError(), "flash_attn_improved launch");
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&t_flash_improved, start, stop);
 
 
     // =========================================================
@@ -156,10 +177,14 @@ int main() {
     cudaMemcpy(h_Out_v1.data(), d_Out_v1, qkv_size, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_Out_v2.data(), d_Out_v2, qkv_size, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_Out_flash.data(), d_Out_flash, qkv_size, cudaMemcpyDeviceToHost);
+    
+    std::vector<float> h_Out_flash_improved(seq_len * d_k);
+    cudaMemcpy(h_Out_flash_improved.data(), d_Out_flash_improved, qkv_size, cudaMemcpyDeviceToHost);
 
     std::cout << "========= CORRECTNESS =========\n";
     std::cout << "Max diff (V1 vs V2):    " << std::scientific << getMaxDiff(h_Out_v1, h_Out_v2) << "\n";
-    std::cout << "Max diff (V1 vs Flash): " << std::scientific << getMaxDiff(h_Out_v1, h_Out_flash) << "\n\n";
+    std::cout << "Max diff (V1 vs FA_1):  " << std::scientific << getMaxDiff(h_Out_v1, h_Out_flash) << "\n";
+    std::cout << "Max diff (V1 vs FA_2):  " << std::scientific << getMaxDiff(h_Out_v1, h_Out_flash_improved) << "\n\n";
 
     std::cout << "========= PERFORMANCE (ms) =========\n";
     
@@ -168,16 +193,19 @@ int main() {
 
     std::cout << std::left << std::setw(25) << "Naive Pipeline (V1)" << ": " << std::fixed << std::setprecision(4) << total_v1 << " ms\n";
     std::cout << std::left << std::setw(25) << "Optimized Pipeline (V2)" << ": " << total_v2 << " ms\n";
-    std::cout << std::left << std::setw(25) << "Flash Attention v1" << ": " << t_flash << " ms\n\n";
+    std::cout << std::left << std::setw(25) << "Flash Attention v1" << ": " << t_flash << " ms\n";
+    std::cout << std::left << std::setw(25) << "Flash Attn (Improved)" << ": " << t_flash_improved << " ms\n\n";
     
-    std::cout << "Speedup (Flash vs V1): " << (total_v1 / t_flash) << "x\n";
-    std::cout << "Speedup (Flash vs V2): " << (total_v2 / t_flash) << "x\n";
+    std::cout << "Speedup (FA Imp vs V1): " << (total_v1 / t_flash_improved) << "x\n";
+    std::cout << "Speedup (FA Imp vs V2): " << (total_v2 / t_flash_improved) << "x\n";
+    std::cout << "Speedup (FA Imp vs FA1): " << (t_flash / t_flash_improved) << "x\n";
 
     // Cleanup
     cudaFree(d_Q); cudaFree(d_K); cudaFree(d_V);
     cudaFree(d_S_v1); cudaFree(d_P_v1); cudaFree(d_Out_v1);
     cudaFree(d_S_v2); cudaFree(d_P_v2); cudaFree(d_Out_v2);
     cudaFree(d_Out_flash);
+    cudaFree(d_Out_flash_improved);
     
     return 0;
 }
