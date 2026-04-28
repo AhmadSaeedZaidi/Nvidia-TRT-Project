@@ -20,5 +20,6 @@ add_library(attention_lib STATIC
 target_include_directories(attention_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 set_target_properties(attention_lib PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
-add_executable(naive_fa_app main.cpp)
+add_executable(naive_fa_app main.cu)
 target_link_libraries(naive_fa_app PRIVATE attention_lib)
+set_target_properties(naive_fa_app PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
