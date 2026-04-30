@@ -47,3 +47,14 @@ __global__ void copy_kernel(float const* S, float* D) {
     copy(tiled_copy, tS, tD);
 }
 ```
+### 30/04
+- Going to look into triton today since tensorrt makes heavy use of it along with CUTLASS and CuTe.
+- "Triton is an open-source programming language and compiler developed by OpenAI for writing highly efficient custom GPU kernels using Python syntax."
+- Regular CUDA requires you to manage execution at the thread level by explicitly assigning individual threads to scalar memory addresses. Triton operates at the block level. You write operations that apply to entire tiles of data simultaneously. So basically, no more thread level coding.
+- This block-level abstraction allows the Triton compiler to automate the most difficult parts of GPU programming. It automatically manages shared memory allocation. It automatically handles memory coalescing for global memory reads and writes. The compiler analyzes the block-level operations and generates the highly optimized PTX instructions required for tensor cores. wow
+- Some other compiler related stuff we don't really know about but some optimizations in the compilation pipeline as well to make it even faster.
+- No wonder this stuff is industry standard.
+----
+
+- Cloning the repo today finally, but GIKI net is so slow we probably won't even be able to do anything right now. 
+- Its over 1 whole GB wow.
