@@ -58,3 +58,25 @@ __global__ void copy_kernel(float const* S, float* D) {
 
 - Cloning the repo today finally, but GIKI net is so slow we probably won't even be able to do anything right now. 
 - Its over 1 whole GB wow.
+
+### 01/05
+- ok so looking into the repository the problem is that there are missing kernels in TensorRT-LLM\cpp\tensorrt_llm\kernels\trtllmGenKernels\fmha\cubin/
+- this just has thousands of weird fiels these aren't even cuda?
+- its compiled stuff
+- ok so i need to find what code compiles those kernels and why seq lengths 32 and above are not compiled
+----
+- ok its been a few hours now and i still haven't found where these are compiled
+- lots of templates and such and setup.py inside cpp\kernels\fmha_v2\setup.py looks promising since this file is definitely being used to compile kernels
+
+### 02/05
+- found something that makes this project impossible
+- cpp\tensorrt_llm\kernels\trtllmGenKernels\fmha\fmhaRunner.cpp, line 44: 
+```cpp
+    TLLM_CHECK_WITH_INFO(mSM == kSM_100 || mSM == kSM_103, "Unsupported architecture");
+```
+- there are actually two variants of blackwell architecture
+- consumer grade gpus are sm120, and this is sm100 aka a datacenter gpu, so even if we write the code we can't even run it
+----
+- new update: secured temp access to a b200! now we can even reproduce the issue and profile it on full size
+- project doable!
+
