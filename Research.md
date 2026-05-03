@@ -80,3 +80,16 @@ __global__ void copy_kernel(float const* S, float* D) {
 - new update: secured temp access to a b200! now we can even reproduce the issue and profile it on full size
 - project doable!
 
+### 03/05
+- double nail in the coffin today:
+    --- 
+    1. - those kernels are missing not because of some missing code or whatever
+        - those binaries actually come precompiled from nvidia
+        - they probaby use their own toolchain to generate these files and they've probably omitted these by mistake
+        -  even if we compile these and force them into cubin/ it will be quite a mess
+    ---
+    2. - the original dev who was assigned this issue actually was working on it and the kernels have most likely already been merged last week on upstream i.e flash-infer
+        - the changes just haven't been propagated back down
+        - our whole "project" is redundant and basically over
+    
+- :(
